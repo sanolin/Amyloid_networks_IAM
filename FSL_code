@@ -1,0 +1,187 @@
+
+### brain extraction and segmentation ###
+
+
+for sub in {1001..1165}; do
+cd /Volumes/vdrive/helpern_users/helpern_j/IAM/IAM_Analysis/pet_network
+mkdir IAM_${sub}
+
+cd IAM_${sub}
+
+mkdir Warp
+
+cd Warp
+
+cp /Volumes/vdrive/helpern_users/helpern_j/IAM/IAM_Analysis/pet/IAM_${sub}/T1.nii.gz T1.nii.gz
+cp /Volumes/vdrive/helpern_users/helpern_j/IAM/IAM_Analysis/pet/IAM_${sub}/SUV_REG.nii.gz SUV_REG.nii.gz
+
+robustfov -i T1.nii.gz -r T1rfov.nii.gz
+
+bet T1rfov.nii.gz T1_brain.nii.gz -R -f 0.35 -g -.15
+
+fslmaths T1_brain.nii.gz -dilD T1_brain_dil.nii.gz
+
+echo done with ${sub}
+done
+
+## AVERI CORRECT BET IMAGES TO T1_brain_final (this image has 1s where she edited voxels) ##
+### Mask T1 with edited brain extracted image ###
+
+for sub in {1001..1165}; do
+cd /Volumes/AKASO/pet_network/IAM_${sub}/Warp
+
+fslmaths T1rfov.nii.gz -mas T1_brain_final.nii.gz T1rfov_brain_final.nii.gz
+
+flirt -ref T1.nii.gz -in T1rfov.nii.gz -omat T1rfov2orig.mat
+
+	flirt -in T1rfov_brain_final.nii.gz -ref T1.nii.gz -out T1_brain_final_origFOV.nii.gz -init T1rfov2orig.mat -applyxfm
+
+	mkdir Seg
+	
+fast -t 1 -n 3 -g -o Seg/T1orig T1_brain_final_origFOV.nii.gz
+
+
+done
+
+#rerun for subjects with incorrect segmentation
+sub=1015
+cd /Volumes/AKASO/pet_network/IAM_${sub}/Warp
+rm -r Seg
+mkdir Seg
+rm -r ROIs
+fast -t 1 -n 3 -g -o Seg/T1orig -a affine_transf.mat -P ${FSLDIR}/data/standard/tissuepriors/avg152T1_grey T1_brain_final_origFOV.nii.gz
+
+
+### warp atlas ###
+for sub in {1127..1165}; do
+cd /Volumes/AKASO/pet_network/IAM_${sub}/Warp
+if [ -e Sch100_2_T1.nii.gz ]
+        then echo ${sub} already exists
+        else
+
+flirt -ref T1_brain_final_origFOV.nii.gz -in ${FSLDIR}/data/standard/MNI152_T1_1mm_brain -omat affine_transf.mat
+
+fnirt --ref=T1_brain_final_origFOV.nii.gz --in=${FSLDIR}/data/standard/MNI152_T1_1mm_brain --aff=affine_transf.mat --cout=nonlinear_transf
+
+applywarp --ref=T1_brain_final_origFOV.nii.gz --in=${FSLDIR}/data/standard/MNI152_T1_1mm_brain --warp=nonlinear_transf --out=MNI_2_T1 
+
+applywarp --ref=T1_brain_final_origFOV.nii.gz --in=/Volumes/AKASO/pet_network/Schaefer2018_100Parcels_7Networks_order_FSLMNI152_1mm.nii.gz --warp=nonlinear_transf --out=Sch100_2_T1 --interp=nn
+
+
+echo done with ${sub}
+fi
+done
+
+### create network masks from ROIs, mask with GM, extract average SUV from PET  ###
+
+for sub in {1001..1165}; do
+
+cd /Volumes/AKASO/pet_network/IAM_${sub}/Warp
+
+if [ -d ROIs ]; then echo $sub ROIs exists
+else
+if [ -e Sch100_2_T1.nii.gz ]
+then 
+echo starting $sub
+mkdir ROIs
+cd ROIs
+
+
+for roinum in 1 2 3 4 5 6 7 8 9 51 52 53 54 55 56 57 58; do
+   fslmaths ../Sch100_2_T1.nii.gz -thr $roinum -uthr $roinum -bin roimask${roinum}
+done
+
+
+fslmaths roimask1 -add roimask2 -add roimask3 -add roimask4 -add roimask5 -add roimask6 -add roimask7 -add roimask8 -add roimask9 -add roimask51 -add roimask52 -add roimask53 -add roimask54 -add roimask55 -add roimask56 -add roimask57 -add roimask58 VIS_mask
+
+   fslmaths VIS_mask -mas ../Seg/T1orig_seg_1.nii.gz -bin VIS_mask_GM
+   fslmeants -i ../SUV_REG.nii.gz -m VIS_mask_GM -o SUV_VIS.txt
+
+
+
+for roinum in 10 11 12 13 14 15 59 60 61 62 63 64 65 66; do
+   fslmaths ../Sch100_2_T1.nii.gz -thr $roinum -uthr $roinum -bin roimask${roinum}
+done
+
+fslmaths roimask10 -add roimask11 -add roimask12 -add roimask13 -add roimask14 -add roimask15 -add roimask59 -add roimask60 -add roimask61 -add roimask62 -add roimask63 -add roimask64 -add roimask65 -add roimask66 SOM_mask
+
+   fslmaths SOM_mask -mas ../Seg/T1orig_seg_1.nii.gz -bin SOM_mask_GM
+   fslmeants -i ../SUV_REG.nii.gz -m SOM_mask_GM -o SUV_SOM.txt
+
+
+
+for roinum in 16 17 18 19 20 21 22 23 67 68 69 70 71 72 73; do
+   fslmaths ../Sch100_2_T1.nii.gz -thr $roinum -uthr $roinum -bin roimask${roinum}
+done
+
+fslmaths roimask16 -add roimask17 -add roimask18 -add roimask19 -add roimask20 -add roimask21 -add roimask22 -add roimask23 -add roimask67 -add roimask68 -add roimask69 -add roimask70 -add roimask71 -add roimask72 -add roimask73 DAT_mask
+
+   fslmaths DAT_mask -mas ../Seg/T1orig_seg_1.nii.gz -bin DAT_mask_GM
+   fslmeants -i ../SUV_REG.nii.gz -m DAT_mask_GM -o SUV_DAT.txt
+
+
+
+for roinum in 24 25 26 27 28 29 30 74 75 76 77 78; do
+   fslmaths ../Sch100_2_T1.nii.gz -thr $roinum -uthr $roinum -bin roimask${roinum}
+done
+
+fslmaths roimask24 -add roimask25 -add roimask26 -add roimask27 -add roimask28 -add roimask29 -add roimask30 -add roimask74 -add roimask75 -add roimask76 -add roimask77 -add roimask78 VAT_mask
+
+   fslmaths VAT_mask -mas ../Seg/T1orig_seg_1.nii.gz -bin VAT_mask_GM
+   fslmeants -i ../SUV_REG.nii.gz -m VAT_mask_GM -o SUV_VAT.txt
+
+
+
+for roinum in 31 32 33 79 80; do
+   fslmaths ../Sch100_2_T1.nii.gz -thr $roinum -uthr $roinum -bin roimask${roinum}
+done
+
+fslmaths roimask31 -add roimask32 -add roimask33 -add roimask79 -add roimask80 LIM_mask
+
+   fslmaths LIM_mask -mas ../Seg/T1orig_seg_1.nii.gz -bin LIM_mask_GM
+   fslmeants -i ../SUV_REG.nii.gz -m LIM_mask_GM -o SUV_LIM.txt
+
+
+for roinum in 34 35 36 37 81 82 83 84 85 86 87 88 89; do
+   fslmaths ../Sch100_2_T1.nii.gz -thr $roinum -uthr $roinum -bin roimask${roinum}
+done
+
+fslmaths roimask34 -add roimask35 -add roimask36 -add roimask37 -add roimask81 -add roimask82 -add roimask83 -add roimask84 -add roimask85 -add roimask86 -add roimask87 -add roimask88 -add roimask89 FPN_mask
+
+   fslmaths FPN_mask -mas ../Seg/T1orig_seg_1.nii.gz -bin FPN_mask_GM
+   fslmeants -i ../SUV_REG.nii.gz -m FPN_mask_GM -o SUV_FPN.txt
+
+
+for roinum in 38 39 40 41 42 43 44 45 46 47 48 49 50 90 91 92 93 94 95 96 97 98 99 100; do
+   fslmaths ../Sch100_2_T1.nii.gz -thr $roinum -uthr $roinum -bin roimask${roinum}
+done
+
+fslmaths roimask38 -add roimask39 -add roimask40 -add roimask41 -add roimask42 -add roimask43 -add roimask44 -add roimask45 -add roimask46 -add roimask47 -add roimask48 -add roimask49 -add roimask50 -add roimask90 -add roimask91 -add roimask92 -add roimask93 -add roimask94 -add roimask95 -add roimask96 -add roimask97 -add roimask98 -add roimask99 -add roimask100 DMN_mask
+
+   fslmaths DMN_mask -mas ../Seg/T1orig_seg_1.nii.gz -bin DMN_mask_GM
+   fslmeants -i ../SUV_REG.nii.gz -m DMN_mask_GM -o SUV_DMN.txt
+
+
+cat SUV*.txt >> SUV_nets.txt
+
+echo done with ${sub}
+else echo $sub no Sch_100_2_T1.nii.gz for subject
+fi
+fi
+done
+
+
+### concatenating all SUV net results ###
+
+cd /Volumes/AKASO/pet_network/
+mkdir SUV_net_metrics
+
+for sub in {1001..1165}; do
+	cp IAM_${sub}/Warp/ROIs/SUV_nets.txt SUV_net_metrics/IAM_${sub}_SUV_nets.txt	
+done
+
+cd SUV_net_metrics
+
+paste -d ";" *.txt > SUV_all.txt
+
+##Then need to open SUV_all.txt with excel and convert text to columns (delimited by semicolon). This file will have subs by column, nets by row. Can then copy and transpose to get subs by row, nets by column 
